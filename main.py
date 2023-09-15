@@ -1,5 +1,28 @@
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, AutoModelForCausalLM, AutoTokenizer
+import torch
+
+chat_histories = {}
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
+
+
+def dialog_model(text, chat_id):
+    # encode the new user input, add the eos_token and return a tensor in Pytorch
+    new_user_input_ids = tokenizer.encode(text + tokenizer.eos_token, return_tensors='pt')
+
+    if chat_id in chat_histories:
+        bot_input_ids = torch.cat([chat_histories[chat_id], new_user_input_ids], dim=-1)
+    else:
+        bot_input_ids = new_user_input_ids
+
+    # generated a response while limiting the total chat history to 1000 tokens,
+    chat_history_ids = model.generate(bot_input_ids, max_length=1000, pad_token_id=tokenizer.eos_token_id)
+    chat_histories[chat_id] = chat_history_ids
+
+    # pretty print last ouput tokens from bot
+    return tokenizer.decode(chat_history_ids[:, bot_input_ids.shape[-1]:][0], skip_special_tokens=True)
 
 
 # Define a few command handlers. These usually take the two arguments update an# context.
@@ -22,9 +45,9 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(update.message.text)
 
 
-# async def dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     """Echo the user message."""
-#     await update.message.reply_text(Model.dialog(update.message.text, update.message.chat_id))
+async def dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Echo the user message."""
+    await update.message.reply_text(dialog_model(update.message.text, update.message.chat_id))
 
 
 def main() -> None:
